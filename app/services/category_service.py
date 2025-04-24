@@ -1,43 +1,47 @@
 from typing import List, Optional
-from app.schemas.category import Category, CategoryCreate, CategoryUpdate
+from sqlalchemy.orm import Session
 
-# In-memory storage for simplicity
-categories_db = {}
-next_id = 1
-
-
-def get_categories() -> List[Category]:
-    """Retrieve all categories."""
-    return list(categories_db.values())
+from app.models.category import Category as CategoryModel
+from app.schemas.category import CategoryCreate, CategoryUpdate
 
 
-def get_category(category_id: int) -> Optional[Category]:
-    """Retrieve a single category by ID."""
-    return categories_db.get(category_id)
+def get_category(db: Session, category_id: int) -> Optional[CategoryModel]:
+    """Retrieve a single category by ID from the database."""
+    return db.query(CategoryModel).filter(CategoryModel.id == category_id).first()
 
 
-def create_category(category: CategoryCreate) -> Category:
-    """Create a new category."""
-    global next_id
-    new_category = Category(id=next_id, **category.model_dump())
-    categories_db[next_id] = new_category
-    next_id += 1
-    return new_category
+def get_categories(db: Session, skip: int = 0, limit: int = 100) -> List[CategoryModel]:
+    """Retrieve all categories from the database with pagination."""
+    return db.query(CategoryModel).offset(skip).limit(limit).all()
+
+
+def create_category(db: Session, category: CategoryCreate) -> CategoryModel:
+    """Create a new category in the database."""
+    db_category = CategoryModel(**category.model_dump())
+    db.add(db_category)
+    db.commit()
+    db.refresh(db_category)  # Refresh to get the ID assigned by the DB
+    return db_category
 
 
 def update_category(
-    category_id: int, category_update: CategoryUpdate
-) -> Optional[Category]:
-    """Update an existing category."""
-    if category_id in categories_db:
-        stored_category_data = categories_db[category_id]
+    db: Session, category_id: int, category_update: CategoryUpdate
+) -> Optional[CategoryModel]:
+    """Update an existing category in the database."""
+    db_category = get_category(db, category_id)
+    if db_category:
         update_data = category_update.model_dump(exclude_unset=True)
-        updated_category = stored_category_data.model_copy(update=update_data)
-        categories_db[category_id] = updated_category
-        return updated_category
-    return None
+        for key, value in update_data.items():
+            setattr(db_category, key, value)
+        db.commit()
+        db.refresh(db_category)
+    return db_category  # Returns the updated category or None if not found
 
 
-def delete_category(category_id: int) -> Optional[Category]:
-    """Delete a category."""
-    return categories_db.pop(category_id, None)
+def delete_category(db: Session, category_id: int) -> Optional[CategoryModel]:
+    """Delete a category from the database."""
+    db_category = get_category(db, category_id)
+    if db_category:
+        db.delete(db_category)
+        db.commit()
+    return db_category  # Returns the deleted category or None if not found
